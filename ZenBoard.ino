@@ -1,14 +1,13 @@
 
-/*
-20180706
-
-*/
 
 #include <Wire.h>
 #include "Adafruit_DRV2605.h"
 #include "FiniteStateMachine.h"
 
-Adafruit_DRV2605 motorDrv;
+#include "LowPower.h"
+
+#include "FBD.h"
+#define CHECKINGTIME 2000 // ms
 
 const uint8_t LED1_RED = 12;
 const uint8_t LED1_GREEN = 13;
@@ -40,6 +39,16 @@ State fadedown(NULL);
 FiniteStateMachine controlMachine(fadeup);
 uint8_t ledSel = 0;
 uint32_t lastPWMTime = millis();
+Adafruit_DRV2605 drv;
+
+
+State checkCapsense(NULL);
+State powerSleep(NULL);
+FiniteStateMachine stateMachine(checkCapsense);
+
+
+TON sensorTON(100);
+Rtrg sensorTrg;
 
 void setup()
 {
@@ -65,57 +74,32 @@ void setup()
     pinMode(LED3BOTDRV, OUTPUT);
 
     pinMode(SENSORIN, OUTPUT);
+    digitalWrite(SENSORIN, LOW);
+
     pinMode(AT24INT, INPUT);
 
-    // Wire.begin();
-    digitalWrite(SENSORIN, LOW);
     pinMode(AT24VDD, OUTPUT);
     digitalWrite(AT24VDD, HIGH);
 
-    motorDrv.begin();
-    // select LRA library 
-    motorDrv.selectLibrary(6);
+    // DRV2605 init part
+    drv.begin();
+    drv.useLRA();
+    drv.selectLibrary(6);
+}
+
+
+void turnOnCap(bool turn)
+{
+    if(turn)
+        digitalWrite(AT24VDD, HIGH);
+    else
+        digitalWrite(AT24VDD, LOW);
 }
 
 static bool PB6Status = false;
 uint8_t effect = 1;
 void loop()
 {
-    /*
-    long vccVoltage = readVcc();
-    switch ((vccVoltage - 3000) / 200)
-    {
-    case 0:
-    led1Drive(true, false, false, 0xFF);
-    break;
-
-    case 1:
-    led1Drive(false, true, false, 0xFF);
-    break;
-
-    case 2:
-    led1Drive(false, false, true, 0xFF);
-    break;
-
-    case 3:
-    led1Drive(true, true, false, 0xFF);
-    break;
-
-    case 4:
-    led1Drive(true, false, true, 0xFF);
-    break;
-
-    case 5:
-    led1Drive(false, true, true, 0xFF);
-    break;
-
-    case 6:
-    led1Drive(true, true, true, 0xFF);
-    break;
-    }
-    delay(1000);
-    */
-
     /*
     const uint32_t INTERVAL = 2000;
     if (millis() - lastPWMTime > 50)
@@ -145,27 +129,78 @@ void loop()
     }
     controlMachine.update(); //*/
 
-    if (digitalRead(AT24INT))
+    /*
+    // set the effect to play
+    drv.setWaveform(0, effect);  // play effect 
+    drv.setWaveform(1, 0);       // end waveform
+    drv.go();
+    // wait a bit
+    delay(500);
+
+    effect++;
+    if (effect > 117) effect = 1;*/
+    
+
+    /*
+    byte error, address;
+    int nDevices;
+
+    nDevices = 0;
+    for (address = 1; address < 127; address++)
+    {
+        Wire.beginTransmission(address);
+        error = Wire.endTransmission();
+        nDevices++;
+    }
+    if (nDevices == 0)
         led1Drive(true, false, false, 255);
     else
         led1Drive(false, true, false, 255);
 
-    // set the effect to play
-    motorDrv.setWaveform(0, effect);  // play effect 
-    motorDrv.setWaveform(1, 0);       // end waveform
-    // play the effect!
-    motorDrv.go();
-    delay(100);
+    delay(5000);           // wait 5 seconds for next scan //*/
 
-    /*
-    // testing AT24VDD power control
-    if (PB6Status)
-    PB6Status = false;
-    else
-    PB6Status = true;
-    digitalWrite(AT24VDD, PB6Status);
-    */
-    // motorDrv.go();
+    sensorTON.IN = digitalRead(AT24INT) == HIGH;
+    sensorTON.update();
+
+    if (stateMachine.isInState(checkCapsense))
+    {
+        turnOnCap(true);
+        if (sensorTON.Q)
+            led6Drive(true, false, false, 255);
+        else
+            led6Drive(false, true, false, 255);
+        
+        /*
+        byte error, address;
+        int nDevices;
+        nDevices = 0;
+        for (address = 1; address < 127; address++)
+        {
+            Wire.beginTransmission(address);
+            error = Wire.endTransmission();
+            nDevices++;
+        }
+        if (nDevices == 0)
+            led6Drive(true, false, false, 255);
+        else
+            led6Drive(false, true, false, 255);
+        delay(1000);
+        */
+
+        if (stateMachine.timeInCurrentState() > CHECKINGTIME)
+        {
+            // led1Drive(false, true, false, 255);
+            // stateMachine.transitionTo(powerSleep);
+        }
+    }
+    else if (stateMachine.isInState(powerSleep))
+    {
+        turnOnCap(false);
+        LowPower.powerDown(SLEEP_2S, ADC_OFF, BOD_OFF);
+        stateMachine.transitionTo(checkCapsense);
+        // led1Drive(true, false, false, 255);
+    }
+    stateMachine.update();
 }
 
 void led1Drive(bool red, bool green, bool blue, uint8_t value)
