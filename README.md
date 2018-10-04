@@ -7,3 +7,5 @@ ATmega328P based breadboard logic control project using internal oscillator
 - LRA motor
 - RGB LED for status
 - 2 buttons setup and mode switch
+
+# State Diagram
