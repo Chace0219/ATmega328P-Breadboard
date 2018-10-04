@@ -54,6 +54,19 @@ boolean Adafruit_DRV2605::begin() {
   return true;
 }
 
+bool Adafruit_DRV2605::standBy() {
+
+    writeRegister8(DRV2605_REG_MODE, 0x40); 
+    return true;
+}
+
+bool Adafruit_DRV2605::reset() 
+{
+    writeRegister8(DRV2605_REG_MODE, 0x80);
+    return true;
+}
+
+
 void Adafruit_DRV2605::setWaveform(uint8_t slot, uint8_t w) {
   writeRegister8(DRV2605_REG_WAVESEQ1+slot, w);
 }

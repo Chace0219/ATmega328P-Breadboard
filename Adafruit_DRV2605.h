@@ -72,6 +72,9 @@ class Adafruit_DRV2605 {
   void useERM();
   void useLRA();
 
+  bool standBy();
+  bool reset();
+
  private:
 
 };

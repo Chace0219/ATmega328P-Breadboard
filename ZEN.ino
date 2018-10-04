@@ -3,7 +3,7 @@ Red mode should not have any events, frequency of events should increase from th
 
 // Confirm that breathing profile matches client supplied numbers (in 1.66, out 3.66)
 
-When event triggers, a slow pulsing light (with vibration, like is currently implemented) burns until the user holds the cap touch.  This starts the actual breathing event. 10 minute timeout if user does not start breathing event (let's make this 1 minute for now).  We can probably have vibration for only the first couple light cycles if it makes power management easier.
+When event triggers, a slow pulsing light (with vibration, like is currently implemented) burns until the user holds the cap touch.Â  This starts the actual breathing event. 10 minute timeout if user does not start breathing event (let's make this 1 minute for now).Â  We can probably have vibration for only the first couple light cycles if it makes power management easier.
 
 After changing color mode, 3 second pause before selected light goes off
 */
@@ -39,7 +39,6 @@ uint32_t eventTime = 5000;
 byte LEDcolor = 0;
 
 //*********************************
-
 // Example settings structure
 struct StoreStruct {
     // This is for mere detection if they are your settings
@@ -101,7 +100,7 @@ FiniteStateMachine lraManager(drvError);
 
 TON touchTON(50);
 Rtrg touchTrg;
-Rtrg touchRelTrg;
+Ftrg touchRelTrg;
 TON touchHoldTON(1000);
 Rtrg touchHoldTrg;
 Ftrg touchHoldRel;
@@ -143,18 +142,18 @@ void setup()
     drv.selectLibrary(6);
     // Set Real-Time Playback mode
     drv.setMode(DRV2605_MODE_REALTIME);
+
 #ifdef DEBUGSERIAL
     mySerial.begin(9600);
-    mySerial.println(F("zen board project"));
 #endif // DEBUGSERIAL
+    debugPrintln(F("Zen V1.4"));
+
     // 
     loadConfig();
-
     turnOnCap(true);
     const unsigned long DEFAULT_TIME = 1357041600; // Jan 1 2013
     setTime(DEFAULT_TIME);
 }
-
 
 void turnOnCap(bool turn)
 {
@@ -165,7 +164,6 @@ void turnOnCap(bool turn)
 }
 
 uint8_t effect = 1;
-
 void displayColorLed(uint8_t colorNum, uint8_t pwmValue)
 {
     LEDcolor = colorNum;
@@ -188,6 +186,17 @@ uint32_t getEventDelay()
 
 void loop()
 {
+    static uint32_t lastCapCheckTime = millis();
+    if (millis() - lastCapCheckTime > 200)
+    {
+        lastCapCheckTime = millis();
+        debugPrint(F("current cap sensor pin "));
+        if (digitalRead(AT24INT))
+            debugPrintln(F("HIGH"));
+        else
+            debugPrintln(F("LOW"));
+    }
+
     // every sec, checking drv2605 has connected or not
     static uint32_t lastLRACheckTime = millis();
     if (millis() - lastLRACheckTime > 1000)
@@ -205,8 +214,6 @@ void loop()
             lraManager.transitionTo(drvError);
         lastLRACheckTime = millis();
     }
-
-
 
     static uint32_t vibratingLastTime = millis();
     static uint32_t battDisplayTime = millis();
@@ -229,48 +236,56 @@ void loop()
                 touchCnt = 0;
             }
         }
+
         battLowTON.IN = battVolt < BATTTHRESHOLD;
         if (!eventManager.isInState(notificationState))
             battLowTON.update();
-        if (battLowTON.Q)
-        {
-            debugPrintln(F("entered sleep state"));
-        }
-
-        if (sleepTrg.Q)
-        {
-            turnOnCap(false);
-            eventManager.transitionTo(powerSleep);
-            led6Drive(false, false, false, 0);
-        }
-        else if (WakeTrg.Q)
-        {
-            eventManager.transitionTo(wakeupSOL);
-            // drv2605_init();
-            turnOnCap(true);
-        } // */
 
         sleepTrg.IN = battLowTON.Q;
         sleepTrg.update();
         WakeTrg.IN = battLowTON.Q;
         WakeTrg.update();
+
+        /*
+        if (sleepTrg.Q)
+        {
+        debugPrintln(F("SLEEP STATE"));
+        turnOnCap(false);
+        eventManager.transitionTo(powerSleep);
+        led6Drive(false, false, false, 0);
+        }
+        else if (WakeTrg.Q)
+        {
+        eventManager.transitionTo(wakeupSOL);
+        debugPrintln(F("WAKEUP"));
+        turnOnCap(true);
+        } // */
+
     }
 
     touchTON.IN = digitalRead(AT24INT) == HIGH;
     touchTON.update();
     touchTrg.IN = touchTON.Q;
     touchTrg.update();
+    if (touchTrg.Q)
+        debugPrintln(F("short touch down"));
 
     touchRelTrg.IN = touchTON.Q;
     touchRelTrg.update();
+    if (touchRelTrg.Q)
+        debugPrintln(F("short touch released"));
 
     touchHoldTON.IN = digitalRead(AT24INT) == HIGH;
     touchHoldTON.update();
     touchHoldTrg.IN = touchHoldTON.Q;
     touchHoldTrg.update();
+    if (touchHoldTrg.Q)
+        debugPrintln(F("long touch down"));
 
     touchHoldRel.IN = touchHoldTON.Q;
     touchHoldRel.update();
+    if (touchHoldRel.Q)
+        debugPrintln(F("long touch released"));
 
 #ifdef NNDEBUGSERIAL
     mySerial.print(F("touch Value: "));
@@ -284,11 +299,15 @@ void loop()
         displayColorLed(RED, 200);
         if (eventManager.timeInCurrentState() > 50)
         {
+            eventManager.transitionTo(wakeupSOL);
+
+            /*
             uint16_t battVolt = map(readVcc(), 2900, 3700, 3140, 4000);
             if (battVolt > BATTTHRESHOLD)
-                eventManager.transitionTo(wakeupSOL);
+            eventManager.transitionTo(wakeupSOL);
             else
-                eventManager.transitionTo(powerSleep);
+            eventManager.transitionTo(powerSleep);
+            */
         }
     }
     else if (eventManager.isInState(powerSleep))
@@ -318,11 +337,10 @@ void loop()
         {
             displayColorLed(WHITE, 0); //OFF
             eventTime = getEventDelay();
-
             notifyCnt = 0;
             eventManager.transitionTo(notificationState);
-            debugPrintln(F("entered into notifiation state"));
-            lraManager.immediateTransitionTo(touchHapticLRA);
+            debugPrintln(F("Triggered Notification state again for only led"));
+            // lraManager.immediateTransitionTo(touchHapticLRA);
         }
     }
     else if (eventManager.isInState(notificationState))
@@ -344,24 +362,27 @@ void loop()
 
         if (touchTrg.Q)
         {
-            debugPrintln(F("entered into breathing state"));
+            debugPrintln(F("Triggered Breathing State"));
             breathingCnt = 0;
             eventManager.transitionTo(breathingState);
         }
         else if (eventManager.timeInCurrentState() > (FADEINTIME + FADEOUTTIME + TUNROFFTIME))
         {
             notifyCnt++;
+            debugPrint(F("Notification Count "));
+            debugPrint(String(notifyCnt));
             if (notifyCnt < 8)
             {
                 eventManager.transitionTo(notificationState);
+                debugPrintln(F(", haptic effect will trigger"));
                 lraManager.immediateTransitionTo(touchHapticLRA);
             }
             else
             {
                 notifyCnt = 0;
                 eventTime = getEventDelay();
-
-                debugPrintln(F("transistion to rest "));
+                // 
+                debugPrintln(F(", Triggered ColorRest State"));
                 eventManager.transitionTo(colorRestState);
                 displayColorLed(WHITE, 0);
                 if (!lraManager.isInState(drvError))
@@ -386,22 +407,25 @@ void loop()
             vibratingLastTime = millis();
             if (!lraManager.isInState(drvError))
             {
-                int8_t vibValue = map(pwmValue, 0, 255, 0, 35); // max level of realtime for drv2605 
+                int8_t vibValue = map(pwmValue, 0, 255, 0, 25); // max level of realtime for drv2605 
                 drv.setRealtimeValue(vibValue);
             }
         }
 
         if (touchRelTrg.Q || touchTON.IN == false)
         {
-            debugPrintln(F("transistion to rest "));
+            debugPrintln(F("Triggered ColorRest state from Breathing state"));
             eventManager.transitionTo(colorRestState);
             displayColorLed(WHITE, 0);
         }
 
         if (eventManager.timeInCurrentState() > FADEOUT + FADEIN)
         {
+            eventManager.transitionTo(breathingState);
+
+            /*
             breathingCnt++;
-            if (breathingCnt < 4)
+            if (breathingCnt < 20) // you mean that here, we need to modify that as 20
             {
                 eventManager.transitionTo(breathingState);
             }
@@ -409,12 +433,12 @@ void loop()
             {
                 breathingCnt = 0;
                 eventTime = getEventDelay();
-                debugPrintln(F("transistion to rest "));
+                debugPrintln(F("Triggered ColorRest sate from breathing by breathing count down"));
                 eventManager.transitionTo(colorRestState);
                 displayColorLed(WHITE, 0);
                 if (!lraManager.isInState(drvError))
                     drv.setRealtimeValue(0);
-            }
+            }*/
         }
     }
     else if (eventManager.isInState(colorRestState))
@@ -427,15 +451,19 @@ void loop()
             {
                 if (lraManager.isInState(drvError))
                     drv2605_init();
+                debugPrintln(F("touch in ColorRest state, haptic effect will be triggered"));
                 lraManager.immediateTransitionTo(touchHapticLRA);
             }
             else
+            {
+                debugPrintln(F("DRV2605 error happened"));
                 lraManager.transitionTo(drvError);
+            }
 
             // display selected color as 250
             displayColorLed(setting.colorNum, 250);
             eventManager.transitionTo(colorSelectState);
-            debugPrintln(F("touch event happend in color select state"));
+            debugPrintln(F("triggered colorSelect state from colorRestState"));
         }
         if (eventManager.timeInCurrentState() > eventTime && setting.colorNum > 0)
         {
@@ -454,7 +482,7 @@ void loop()
             else
                 lraManager.transitionTo(drvError);
 
-            debugPrintln(F("entered into notification state"));
+            debugPrintln(F("triggered Notification state from ColorRest"));
             lraManager.immediateTransitionTo(touchHapticLRA);
             eventManager.transitionTo(notificationState);
         }
@@ -467,7 +495,7 @@ void loop()
         { // touch clicked
             touchCnt++;
 
-            debugPrintln(F("touch event happend in color select state"));
+            debugPrintln(F("touch in colorselect state, "));
             debugPrint(F("today pressed touch count is "));
             debugPrintln(String(touchCnt));
 
@@ -498,8 +526,7 @@ void loop()
             eventTime = getEventDelay();
             eventManager.transitionTo(colorRestState);
             displayColorLed(WHITE, 0);
-
-            debugPrintln(F("enterend into rest state again"));
+            debugPrintln(F("triggered into colorRest state from colorSelect "));
             debugPrint(F("calculated interval time is "));
             debugPrint(String(eventTime));
             debugPrintln(F("ms"));
@@ -544,6 +571,7 @@ long readVcc()
     result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
     return result; // Vcc in millivolts
 }
+
 void setPwmFrequency(int pin, int divisor) {
     byte mode;
     if (pin == 5 || pin == 6 || pin == 9 || pin == 10) {
@@ -624,6 +652,7 @@ void drv2605_Effect()
 // init drv2605 module
 void drv2605_init()
 {
+    debugPrintln(F("drv605 init function"));
     drv.begin();
     drv.useLRA();
     drv.selectLibrary(6);
